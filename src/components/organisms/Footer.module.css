@@ -1,0 +1,21 @@
+.footer { background-color: #060606; border-top: 1px solid var(--color-border); padding: var(--space-16) 0 var(--space-8); }
+.top { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: var(--space-12); margin-bottom: var(--space-12); padding-bottom: var(--space-12); border-bottom: 1px solid var(--color-border); }
+.logo { display: block; font-size: var(--fs-2xl); font-weight: var(--fw-black); letter-spacing: -0.03em; color: var(--color-text); margin-bottom: var(--space-4); }
+.accent { color: var(--color-accent); }
+.tagline { font-size: var(--fs-sm); color: var(--color-text-muted); line-height: 1.6; max-width: 280px; margin-bottom: var(--space-6); }
+.social { display: flex; gap: var(--space-3); }
+.socialLink { font-size: 1.2rem; width: 40px; height: 40px; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; transition: var(--transition-base); }
+.socialLink:hover { border-color: var(--color-accent); background: var(--color-accent-glow); transform: translateY(-2px); }
+.navTitle { display: block; font-size: var(--fs-xs); font-weight: var(--fw-bold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent); margin-bottom: var(--space-5); }
+.nav { display: flex; flex-direction: column; gap: var(--space-3); }
+.navLink { font-size: var(--fs-sm); color: var(--color-text-muted); transition: color 0.2s ease; }
+.navLink:hover { color: var(--color-accent); }
+.info { display: flex; flex-direction: column; gap: var(--space-3); }
+.info p, .info a { font-size: var(--fs-sm); color: var(--color-text-muted); transition: color 0.2s ease; }
+.info a:hover { color: var(--color-text); }
+.waLink { color: var(--color-accent) !important; font-weight: var(--fw-semibold); margin-top: var(--space-3); }
+.bottom { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-4); }
+.bottom p { font-size: var(--fs-xs); color: #444; }
+
+@media (max-width: 900px) { .top { grid-template-columns: 1fr 1fr; } .brand { grid-column: span 2; } }
+@media (max-width: 580px) { .top { grid-template-columns: 1fr; } .brand { grid-column: 1; } .bottom { flex-direction: column; text-align: center; } }
