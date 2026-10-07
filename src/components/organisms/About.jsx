@@ -16,7 +16,7 @@ export default function About() {
             <SectionTitle
               label="Quiénes somos"
               title="Más de una década construyendo confianza"
-              subtitle="Somos albañiles profesionales con sede en Guatemala. Combinamos experiencia artesanal con técnicas modernas para superar expectativas."
+              subtitle="Somos albañiles profesionales con sede en San José Pinula y Fraijanes. Combinamos experiencia artesanal con técnicas modernas para superar expectativas."
               theme="dark" align="left"
             />
             <p className={styles.body}>

@@ -25,12 +25,15 @@ export default function Contact() {
     e.preventDefault()
     setStatus('sending')
     try {
-      /**
-       * TODO: Conectar EmailJS
-       * import emailjs from '@emailjs/browser'
-       * await emailjs.sendForm('SERVICE_ID', 'TEMPLATE_ID', formRef.current, 'PUBLIC_KEY')
-       */
-      await new Promise(r => setTimeout(r, 1200))
+      const response = await fetch("https://formsubmit.co/ajax/danielminchez@gmail.com", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(form)
+      })
+      if (!response.ok) throw new Error('Network response failed')
       setStatus('success')
       setForm({ nombre: '', correo: '', telefono: '', servicio: '', mensaje: '' })
     } catch (err) {
