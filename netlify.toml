@@ -1,0 +1,12 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# SPA fallback – all client routes go to index.html
+# Netlify Functions v2 with path config are matched automatically
+# before these redirects, so /api/proformas/* is handled by the function
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
