@@ -7,27 +7,31 @@ import { getStore } from "@netlify/blobs";
 const STORE_NAME = "proformas";
 const BLOB_KEY   = "all_proformas";
 
-const CORS_HEADERS = {
+const headers = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Content-Type": "application/json",
 };
-
-const json = (statusCode, body) => ({
-  statusCode,
-  headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-  body: JSON.stringify(body),
-});
 
 /* ---------- helpers ---------- */
 async function loadProformas(store) {
-  const raw = await store.get(BLOB_KEY);
-  if (!raw) return [];
-  return JSON.parse(raw);
+  try {
+    const raw = await store.get(BLOB_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Error loading proformas:", e);
+    return null;
+  }
 }
 
 async function saveProformas(store, data) {
   await store.set(BLOB_KEY, JSON.stringify(data));
+}
+
+function respond(statusCode, body) {
+  return new Response(JSON.stringify(body), { status: statusCode, headers });
 }
 
 /* ---------- seed data (from proformas_alba_itec.md) ---------- */
@@ -98,35 +102,42 @@ function getSeedData() {
   ];
 }
 
+/* ---------- extract action + id from URL ---------- */
+function parseAction(url) {
+  // pathname will be like /api/proformas or /api/proformas/some-uuid or /api/proformas/seed
+  const pathname = url.pathname.replace(/\/+$/, ""); // trim trailing slashes
+  const parts = pathname.split("/").filter(Boolean);
+  // parts = ["api", "proformas"] or ["api", "proformas", "some-id"]
+  const id = parts.length > 2 ? parts[2] : null;
+  return { id };
+}
+
 /* ---------- handler ---------- */
 export default async (req, context) => {
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    return new Response(null, { status: 204, headers });
   }
 
   const store = getStore(STORE_NAME);
   const url = new URL(req.url);
-  const segments = url.pathname.replace(/^\/api\/proformas\/?/, "").split("/").filter(Boolean);
+  const { id } = parseAction(url);
 
   try {
-    /* ---- GET /api/proformas ---- */
-    if (req.method === "GET" && segments.length === 0) {
+    /* ---- GET /api/proformas ---- list all */
+    if (req.method === "GET" && !id) {
       let proformas = await loadProformas(store);
-      if (proformas.length === 0) {
+      if (!proformas || proformas.length === 0) {
         proformas = getSeedData();
         await saveProformas(store, proformas);
       }
-      return new Response(JSON.stringify(proformas), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      return respond(200, proformas);
     }
 
-    /* ---- POST /api/proformas ---- create new proforma */
-    if (req.method === "POST" && segments.length === 0) {
+    /* ---- POST /api/proformas ---- create new */
+    if (req.method === "POST" && !id) {
       const body = await req.json();
-      const proformas = await loadProformas(store);
+      let proformas = await loadProformas(store) || [];
       const newProforma = {
         id: crypto.randomUUID(),
         title: body.title || "Nueva Proforma",
@@ -142,23 +153,47 @@ export default async (req, context) => {
       };
       proformas.push(newProforma);
       await saveProformas(store, proformas);
-      return new Response(JSON.stringify(newProforma), {
-        status: 201,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      return respond(201, newProforma);
     }
 
-    /* ---- PUT /api/proformas/:id ---- update proforma */
-    if (req.method === "PUT" && segments.length === 1) {
-      const proformaId = segments[0];
+    /* ---- POST /api/proformas/seed ---- force re-seed */
+    if (req.method === "POST" && id === "seed") {
+      const proformas = getSeedData();
+      await saveProformas(store, proformas);
+      return respond(200, proformas);
+    }
+
+    /* ---- POST /api/proformas/save-all ---- bulk save (replaces all) */
+    if (req.method === "POST" && id === "save-all") {
       const body = await req.json();
-      const proformas = await loadProformas(store);
-      const idx = proformas.findIndex(p => p.id === proformaId);
+      if (!Array.isArray(body)) {
+        return respond(400, { error: "Se esperaba un arreglo de proformas" });
+      }
+      // Recalculate subtotals
+      const cleaned = body.map(p => ({
+        id: p.id || crypto.randomUUID(),
+        title: p.title || "",
+        precioBase: p.precioBase || "",
+        items: (p.items || []).map(it => ({
+          id: it.id || crypto.randomUUID(),
+          descripcion: it.descripcion || "",
+          unidad: it.unidad || "",
+          precioRef: Number(it.precioRef) || 0,
+          cantidad: Number(it.cantidad) || 0,
+          subtotal: (Number(it.precioRef) || 0) * (Number(it.cantidad) || 0),
+        })),
+      }));
+      await saveProformas(store, cleaned);
+      return respond(200, { success: true, count: cleaned.length });
+    }
+
+    /* ---- PUT /api/proformas/:id ---- update one */
+    if (req.method === "PUT" && id) {
+      const body = await req.json();
+      let proformas = await loadProformas(store) || [];
+      const idx = proformas.findIndex(p => p.id === id);
       if (idx === -1) {
-        return new Response(JSON.stringify({ error: "Proforma no encontrada" }), {
-          status: 404,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
+        return respond(404, { error: "Proforma no encontrada" });
       }
       proformas[idx] = {
         ...proformas[idx],
@@ -174,54 +209,30 @@ export default async (req, context) => {
         })),
       };
       await saveProformas(store, proformas);
-      return new Response(JSON.stringify(proformas[idx]), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      return respond(200, proformas[idx]);
     }
 
-    /* ---- DELETE /api/proformas/:id ---- delete proforma */
-    if (req.method === "DELETE" && segments.length === 1) {
-      const proformaId = segments[0];
-      let proformas = await loadProformas(store);
-      const idx = proformas.findIndex(p => p.id === proformaId);
+    /* ---- DELETE /api/proformas/:id ---- delete one */
+    if (req.method === "DELETE" && id) {
+      let proformas = await loadProformas(store) || [];
+      const idx = proformas.findIndex(p => p.id === id);
       if (idx === -1) {
-        return new Response(JSON.stringify({ error: "Proforma no encontrada" }), {
-          status: 404,
-          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-        });
+        return respond(404, { error: "Proforma no encontrada" });
       }
       proformas.splice(idx, 1);
       await saveProformas(store, proformas);
-      return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
+      return respond(200, { success: true });
     }
 
-    /* ---- POST /api/proformas/seed ---- force re-seed */
-    if (req.method === "POST" && segments[0] === "seed") {
-      const proformas = getSeedData();
-      await saveProformas(store, proformas);
-      return new Response(JSON.stringify(proformas), {
-        status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      });
-    }
-
-    return new Response(JSON.stringify({ error: "Ruta no encontrada" }), {
-      status: 404,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
+    return respond(404, { error: "Ruta no encontrada" });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-    });
+    console.error("Proformas function error:", err);
+    return respond(500, { error: err.message, stack: err.stack });
   }
 };
 
+// CRITICAL: path array to match BOTH /api/proformas AND /api/proformas/*
 export const config = {
-  path: "/api/proformas/*",
+  path: ["/api/proformas", "/api/proformas/*"],
 };

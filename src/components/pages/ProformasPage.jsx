@@ -322,20 +322,24 @@ export default function ProformasPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
-  const [useLocalMode, setUseLocalMode] = useState(false)
+  const [apiAvailable, setApiAvailable] = useState(null) // null = unknown, true/false
 
   /* ---- Fetch proformas ---- */
   const fetchProformas = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch(API_BASE)
-      if (!res.ok) throw new Error('Fetch failed')
+      if (!res.ok) {
+        const errText = await res.text()
+        throw new Error(`HTTP ${res.status}: ${errText}`)
+      }
       const data = await res.json()
       setProformas(data)
-      setUseLocalMode(false)
-    } catch {
+      setApiAvailable(true)
+      console.info('✅ API conectada — datos del servidor cargados')
+    } catch (err) {
       // Fallback to local seed data when not on Netlify
-      console.info('API unavailable — using local data')
+      console.warn('⚠️ API no disponible, usando localStorage:', err.message)
       const stored = localStorage.getItem('albaitec_proformas')
       if (stored) {
         setProformas(JSON.parse(stored))
@@ -343,7 +347,7 @@ export default function ProformasPage() {
         setProformas(SEED_DATA)
         localStorage.setItem('albaitec_proformas', JSON.stringify(SEED_DATA))
       }
-      setUseLocalMode(true)
+      setApiAvailable(false)
     } finally {
       setLoading(false)
     }
@@ -353,25 +357,33 @@ export default function ProformasPage() {
     if (authenticated) fetchProformas()
   }, [authenticated, fetchProformas])
 
-  /* ---- Save all ---- */
+  /* ---- Save all (bulk) ---- */
   const saveAll = async () => {
     setSaving(true)
     try {
-      if (useLocalMode) {
+      if (!apiAvailable) {
         localStorage.setItem('albaitec_proformas', JSON.stringify(proformas))
-        setToast({ message: 'Cambios guardados localmente', type: 'success' })
-      } else {
-        for (const p of proformas) {
-          await fetch(`${API_BASE}/${p.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(p),
-          })
-        }
-        setToast({ message: 'Proformas guardadas exitosamente', type: 'success' })
+        setToast({ message: 'Guardado localmente (API no disponible)', type: 'success' })
+        return
       }
-    } catch {
-      setToast({ message: 'Error al guardar', type: 'error' })
+
+      // Use the bulk save-all endpoint
+      const res = await fetch(`${API_BASE}/save-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(proformas),
+      })
+
+      if (!res.ok) {
+        const errData = await res.text()
+        throw new Error(`HTTP ${res.status}: ${errData}`)
+      }
+
+      const result = await res.json()
+      setToast({ message: `✅ ${result.count} proformas guardadas en servidor`, type: 'success' })
+    } catch (err) {
+      console.error('Error saving:', err)
+      setToast({ message: `Error: ${err.message}`, type: 'error' })
     } finally {
       setSaving(false)
     }
@@ -385,17 +397,22 @@ export default function ProformasPage() {
   /* ---- Delete proforma ---- */
   const deleteProforma = async (id) => {
     try {
-      if (!useLocalMode) {
-        await fetch(`${API_BASE}/${id}`, { method: 'DELETE' })
+      if (apiAvailable) {
+        const res = await fetch(`${API_BASE}/${id}`, { method: 'DELETE' })
+        if (!res.ok) {
+          const errData = await res.text()
+          throw new Error(`HTTP ${res.status}: ${errData}`)
+        }
       }
-      setProformas(prev => prev.filter(p => p.id !== id))
-      if (useLocalMode) {
-        const updated = proformas.filter(p => p.id !== id)
+      const updated = proformas.filter(p => p.id !== id)
+      setProformas(updated)
+      if (!apiAvailable) {
         localStorage.setItem('albaitec_proformas', JSON.stringify(updated))
       }
       setToast({ message: 'Proforma eliminada', type: 'success' })
-    } catch {
-      setToast({ message: 'Error al eliminar', type: 'error' })
+    } catch (err) {
+      console.error('Error deleting:', err)
+      setToast({ message: `Error al eliminar: ${err.message}`, type: 'error' })
     }
   }
 
@@ -410,21 +427,27 @@ export default function ProformasPage() {
       ],
     }
     try {
-      if (!useLocalMode) {
+      if (apiAvailable) {
         const res = await fetch(API_BASE, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(newProforma),
         })
+        if (!res.ok) {
+          const errData = await res.text()
+          throw new Error(`HTTP ${res.status}: ${errData}`)
+        }
         const created = await res.json()
         setProformas(prev => [...prev, created])
       } else {
-        setProformas(prev => [...prev, newProforma])
-        localStorage.setItem('albaitec_proformas', JSON.stringify([...proformas, newProforma]))
+        const updated = [...proformas, newProforma]
+        setProformas(updated)
+        localStorage.setItem('albaitec_proformas', JSON.stringify(updated))
       }
       setToast({ message: 'Proforma creada', type: 'success' })
-    } catch {
-      setToast({ message: 'Error al crear proforma', type: 'error' })
+    } catch (err) {
+      console.error('Error creating:', err)
+      setToast({ message: `Error al crear: ${err.message}`, type: 'error' })
     }
   }
 
@@ -451,7 +474,12 @@ export default function ProformasPage() {
         <h1 className="proformas-page__title">Proformas Albañitec</h1>
         <p className="proformas-page__desc">
           Gestión de presupuestos y materiales · {proformas.length} proformas
-          {useLocalMode && ' · Modo local'}
+          {apiAvailable === false && (
+            <span style={{ color: '#FF9800' }}> · ⚠️ Modo local (los cambios no se sincronizan)</span>
+          )}
+          {apiAvailable === true && (
+            <span style={{ color: '#22C55E' }}> · 🟢 Conectado al servidor</span>
+          )}
         </p>
       </header>
 
